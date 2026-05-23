@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AEGIS Requirements Studio · A Business Analyst Platform</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --navy:#1E2A4A; --gold:#A8801C; --ox:#8B2635; --green:#2D5A3D;
+    --cream:#F4F1EA; --paper:#FBFAF6; --ink:#1A1A1F; --mute:#6B6B72; --rule:#D8D2C5;
+  }
+  body { background:var(--cream); color:var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, Arial, sans-serif; }
+  .serif { font-family: ui-serif, Georgia, "Times New Roman", serif; }
+  .mono  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .navy-bg{background:var(--navy)} .gold-bg{background:var(--gold)} .ox-bg{background:var(--ox)} .green-bg{background:var(--green)}
+  .navy{color:var(--navy)} .gold{color:var(--gold)} .ox{color:var(--ox)} .green{color:var(--green)} .mute{color:var(--mute)}
+  .border-navy{border-color:var(--navy)} .border-gold{border-color:var(--gold)}
+  .paper{background:var(--paper)}
+  .tab-active { background:var(--navy); color:#fff; }
+  .tab-active .tab-num { color:var(--gold); }
+  .pill { display:inline-block; padding:2px 8px; font-size:11px; font-weight:600; letter-spacing:0.04em; border-radius:9999px; }
+  .field-label { font-size:11px; font-weight:700; letter-spacing:0.06em; color:var(--mute); text-transform:uppercase; }
+  textarea, input, select { background:#fff; border:1px solid var(--rule); border-radius:6px; padding:8px 10px; width:100%; font-size:14px; color:var(--ink); }
+  textarea:focus, input:focus, select:focus { outline:none; border-color:var(--navy); }
+  .card { background:var(--paper); border:1px solid var(--rule); border-radius:8px; }
+  button.primary { background:var(--navy); color:#fff; padding:8px 14px; border-radius:6px; font-weight:600; font-size:13px; }
+  button.primary:hover { background:#2a3a60; }
+  button.ghost { background:transparent; color:var(--navy); padding:6px 10px; border-radius:6px; font-size:13px; border:1px solid var(--rule); }
+  button.ghost:hover { background:var(--paper); }
+  button.danger { color:var(--ox); font-size:12px; }
+  .priority-must { background:#8B2635; color:#fff; }
+  .priority-should { background:#A8801C; color:#fff; }
+  .priority-could { background:#647AA0; color:#fff; }
+  .priority-wont { background:#6B6B72; color:#fff; }
+  .quality-score-bar { height:6px; background:var(--rule); border-radius:3px; overflow:hidden; }
+  .quality-score-fill { height:100%; transition: width 200ms ease; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect } = React;
+
+// ─── Reference data (grounded in Wiegers et al.) ──────────────────────
+const STAKEHOLDER_TYPES = [
+  "Executive sponsor",
+  "Customer (business owner)",
+  "Direct user (end user)",
+  "Indirect user",
+  "Product champion",
+  "Development team",
+  "Subject matter expert",
+  "Regulator / supervisor",
+  "Internal auditor",
+  "Data Protection Officer",
+  "Risk / compliance",
+  "Security",
+  "Operations",
+];
+
+const NFR_CATEGORIES = [
+  "Performance",
+  "Reliability",
+  "Availability",
+  "Usability",
+  "Security",
+  "Maintainability",
+  "Scalability",
+  "Interoperability",
+  "Accuracy",            // banking-AI relevant
+  "Robustness",          // AI Act Art. 15
+  "Fairness / bias",     // AI Act Art. 10
+  "Explainability",      // AI Act Art. 13 + GDPR Art. 22
+  "Resilience",          // DORA
+  "Auditability",
+];
+
+const QUALITY_CRITERIA = [
+  { key: "complete",     label: "Complete",     hint: "Contains all info the reader needs to understand and implement it." },
+  { key: "correct",      label: "Correct",      hint: "Accurately describes a real stakeholder need; verified at source." },
+  { key: "feasible",     label: "Feasible",     hint: "Implementable within known constraints (time, budget, technology, regulation)." },
+  { key: "necessary",    label: "Necessary",    hint: "Documents a real need; no requirement is gold-plating." },
+  { key: "prioritised",  label: "Prioritised",  hint: "Carries a MoSCoW priority agreed with stakeholders." },
+  { key: "unambiguous",  label: "Unambiguous",  hint: "One interpretation only. Read aloud and check: do two people read it the same way?" },
+  { key: "verifiable",   label: "Verifiable",   hint: "A tester can devise an objective test to confirm it." },
+];
+
+const REG_REFERENCES = [
+  { code: "AI Act Art. 9",       layer: "Application", text: "Risk management system, continuous and iterative." },
+  { code: "AI Act Art. 10",      layer: "Data",        text: "Training, validation, test data must be relevant, representative, examined for bias." },
+  { code: "AI Act Art. 11",      layer: "Application", text: "Technical documentation per Annex IV." },
+  { code: "AI Act Art. 12",      layer: "Application", text: "Automatic logging of events." },
+  { code: "AI Act Art. 13",      layer: "Application", text: "Transparency and information to deployers." },
+  { code: "AI Act Art. 14",      layer: "Application", text: "Human oversight, designed in." },
+  { code: "AI Act Art. 15",      layer: "Technology",  text: "Accuracy, robustness, cybersecurity." },
+  { code: "AI Act Art. 26",      layer: "Business",    text: "Deployer obligations: human oversight assignment, monitoring." },
+  { code: "AI Act Art. 27",      layer: "Business",    text: "Fundamental Rights Impact Assessment (FRIA) for credit-scoring deployers." },
+  { code: "DORA Art. 8",         layer: "Technology",  text: "Identify, classify ICT assets and dependencies." },
+  { code: "DORA Art. 17-23",     layer: "Technology",  text: "ICT incident management and reporting." },
+  { code: "DORA Art. 24-26",     layer: "Technology",  text: "Digital operational resilience testing, TLPT." },
+  { code: "DORA Art. 28(3)",     layer: "Technology",  text: "Register of information on ICT third parties." },
+  { code: "DORA Art. 28(8)",     layer: "Technology",  text: "Exit strategy, documented and tested." },
+  { code: "GDPR Art. 5",         layer: "Data",        text: "Principles: lawfulness, minimisation, accuracy, storage limitation." },
+  { code: "GDPR Art. 6 / 9",     layer: "Data",        text: "Lawful basis; special-category data conditions." },
+  { code: "GDPR Art. 22",        layer: "Application", text: "Rights against solely automated decisions; human review." },
+  { code: "GDPR Art. 30",        layer: "Data",        text: "Records of processing activities." },
+  { code: "GDPR Art. 35",        layer: "Data",        text: "Data protection impact assessment (DPIA)." },
+  { code: "NIS2 Art. 21",        layer: "Technology",  text: "Cybersecurity risk-management measures (10 minimums)." },
+  { code: "NIS2 Art. 23",        layer: "Technology",  text: "Significant incident reporting (24h / 72h / 1 month)." },
+  { code: "EBA Internal Gov.",   layer: "Business",    text: "Three lines of defence; documented decisions." },
+  { code: "EBA Loan Origination",layer: "Business",    text: "Creditworthiness assessment governance for automated models." },
+];
+
+const ELICITATION_TECHNIQUES = [
+  { name: "Stakeholder interview",     when: "One-to-one understanding of needs, especially senior or sensitive stakeholders.", produces: "Notes, draft user requirements" },
+  { name: "Facilitated workshop",      when: "Cross-functional alignment in one room; conflict surfacing.",                      produces: "Shared scope, prioritised list" },
+  { name: "Observation (job shadowing)", when: "When the current process is poorly documented or users cannot articulate it.",     produces: "Process flow, pain points" },
+  { name: "Document analysis",         when: "Existing systems, regulations, audit reports must inform the spec.",                produces: "Constraints, business rules" },
+  { name: "Survey / questionnaire",    when: "Many users, geographically distributed, similar role.",                              produces: "Quantitative weight on options" },
+  { name: "Prototyping",               when: "UI or AI behaviour is hard to describe in words; reduce ambiguity early.",          produces: "Demo, refined requirements" },
+  { name: "Use case / scenario session",when: "Functional behaviour in normal and exceptional flows.",                            produces: "Use cases with main and alt flows" },
+  { name: "Event-response table",      when: "System reacts to many events; need exhaustive coverage.",                            produces: "Event list, response per event" },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+const uid = () => Math.random().toString(36).slice(2, 9);
+const blank = () => ({
+  project: {
+    name: "",
+    vision: { problem: "", benefit: "", customers: "", differentiator: "" },
+    objectives: [],
+    scope: { in: [], out: [], future: [] },
+    metrics: [],
+  },
+  stakeholders: [],
+  requirements: { business: [], user: [], functional: [], nfr: [] },
+  reg: {},   // map of requirement id -> [reg codes]
+  trace: {}, // user req id -> [business req ids]; functional req id -> [user req ids]
+});
+
+const priorityClass = (p) => ({
+  Must: "priority-must", Should: "priority-should", Could: "priority-could", "Won't": "priority-wont",
+}[p] || "priority-wont");
+
+// ─── App ──────────────────────────────────────────────────────────────
+function App() {
+  const [state, setState] = useState(blank());
+  const [tab, setTab] = useState("setup");
+  const update = (path, value) => {
+    setState(s => {
+      const next = JSON.parse(JSON.stringify(s));
+      const parts = path.split(".");
+      let o = next; for (let i=0; i<parts.length-1; i++) o = o[parts[i]];
+      o[parts[parts.length-1]] = value;
+      return next;
+    });
+  };
+
+  // Import / export JSON
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (state.project.name || "requirements") + ".json";
+    a.click();
+  };
+  const importJson = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => { try { setState(JSON.parse(ev.target.result)); } catch { alert("Invalid JSON."); } };
+    r.readAsText(f);
+  };
+
+  const tabs = [
+    { id:"setup",    n:"01", label:"Project setup" },
+    { id:"stake",    n:"02", label:"Stakeholders" },
+    { id:"elicit",   n:"03", label:"Elicitation plan" },
+    { id:"reqs",     n:"04", label:"Requirements" },
+    { id:"quality",  n:"05", label:"Quality gate" },
+    { id:"trace",    n:"06", label:"Traceability" },
+    { id:"reg",      n:"07", label:"Regulatory mapping" },
+    { id:"export",   n:"08", label:"Generate SRS" },
+  ];
+
+  return (
+    <div className="min-h-screen">
+      {/* Header */}
+      <header className="navy-bg text-white">
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div>
+            <div className="mono text-xs gold" style={{letterSpacing:"0.18em"}}>AEGIS · REQUIREMENTS STUDIO</div>
+            <h1 className="serif text-2xl mt-1">A Business Analyst Platform</h1>
+            <p className="text-xs mute mt-1" style={{color:"#cfd3df"}}>Grounded in Wiegers and Beatty (2013), Software Requirements (3rd ed.); the BABOK; and the EU regulatory stack.</p>
+          </div>
+          <div className="flex gap-2">
+            <label className="ghost cursor-pointer" style={{background:"#fff", color:"var(--navy)", padding:"6px 10px", borderRadius:"6px", fontSize:"13px"}}>
+              Import JSON
+              <input type="file" accept="application/json" onChange={importJson} className="hidden" />
+            </label>
+            <button onClick={exportJson} className="primary" style={{background:"var(--gold)"}}>Save JSON</button>
+          </div>
+        </div>
+        {/* Tabs */}
+        <nav className="max-w-7xl mx-auto px-6 pb-0 flex flex-wrap gap-1">
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              className={`px-3 py-2 text-sm rounded-t-md flex items-center gap-2 ${tab===t.id ? "tab-active" : "text-gray-200"}`}
+              style={tab===t.id ? {} : {background:"#2a3a60", color:"#cfd3df"}}>
+              <span className="mono text-xs tab-num" style={{color: tab===t.id ? "var(--gold)" : "#9ba3b8"}}>{t.n}</span>
+              <span className="font-medium">{t.label}</span>
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-6 py-6">
+        {tab==="setup"   && <SetupTab state={state} setState={setState} />}
+        {tab==="stake"   && <StakeholdersTab state={state} setState={setState} />}
+        {tab==="elicit"  && <ElicitTab />}
+        {tab==="reqs"    && <RequirementsTab state={state} setState={setState} />}
+        {tab==="quality" && <QualityTab state={state} setState={setState} />}
+        {tab==="trace"   && <TraceTab state={state} setState={setState} />}
+        {tab==="reg"     && <RegTab state={state} setState={setState} />}
+        {tab==="export"  && <ExportTab state={state} />}
+      </main>
+
+      <footer className="max-w-7xl mx-auto px-6 py-6 text-xs mute border-t" style={{borderColor:"var(--rule)"}}>
+        References: Wiegers, K. and Beatty, J. (2013), <i>Software Requirements (3rd ed.)</i>, Microsoft Press · IIBA (2015), <i>BABOK Guide v3</i> · Cohn, M. (2004), <i>User Stories Applied</i> · Cockburn, A. (2001), <i>Writing Effective Use Cases</i> · Adzic, G. (2011), <i>Specification by Example</i>.
+      </footer>
+    </div>
+  );
+}
+
+// ─── TAB 01 · Project setup ──────────────────────────────────────────
+function SetupTab({ state, setState }) {
+  const p = state.project;
+  const update = (path, val) => setState(s => {
+    const n = JSON.parse(JSON.stringify(s));
+    const parts = path.split(".");
+    let o = n; for (let i=0; i<parts.length-1; i++) o = o[parts[i]];
+    o[parts[parts.length-1]] = val;
+    return n;
+  });
+  const addToList = (path, val) => {
+    if (!val.trim()) return;
+    setState(s => {
+      const n = JSON.parse(JSON.stringify(s));
+      const parts = path.split(".");
+      let o = n; for (let i=0; i<parts.length-1; i++) o = o[parts[i]];
+      o[parts[parts.length-1]].push(val.trim());
+      return n;
+    });
+  };
+  const removeFromList = (path, idx) => {
+    setState(s => {
+      const n = JSON.parse(JSON.stringify(s));
+      const parts = path.split(".");
+      let o = n; for (let i=0; i<parts.length-1; i++) o = o[parts[i]];
+      o[parts[parts.length-1]].splice(idx, 1);
+      return n;
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Section title="Project identity" hint="Name the work in one line. Avoid technology in the name (no 'AI platform'); state what it does for whom.">
+        <input value={p.name} onChange={e=>update("project.name", e.target.value)} placeholder="e.g. Retail mortgage decisioning" />
+      </Section>
+
+      <Section title="Vision statement" hint="Wiegers' template: For [target customer], who [need], the [product] is [category] that [key benefit]. Unlike [alternative], our product [differentiator]." cols={2}>
+        <Field label="Problem this solves">
+          <textarea rows="3" value={p.vision.problem} onChange={e=>update("project.vision.problem", e.target.value)} placeholder="State the specific problem in customer terms. Not 'we need AI', but 'underwriters reject 14% of viable applications because manual scoring lacks signal X'."/>
+        </Field>
+        <Field label="Key benefit delivered">
+          <textarea rows="3" value={p.vision.benefit} onChange={e=>update("project.vision.benefit", e.target.value)} placeholder="What the customer gets, measurably."/>
+        </Field>
+        <Field label="Target customers">
+          <textarea rows="3" value={p.vision.customers} onChange={e=>update("project.vision.customers", e.target.value)} placeholder="Specific segment, role, context."/>
+        </Field>
+        <Field label="Differentiator">
+          <textarea rows="3" value={p.vision.differentiator} onChange={e=>update("project.vision.differentiator", e.target.value)} placeholder="Why this approach rather than the existing alternative."/>
+        </Field>
+      </Section>
+
+      <Section title="Business objectives" hint="SMART. Each must be measurable and time-bound. Three to five is enough; more is dilution.">
+        <ListEditor items={p.objectives} onAdd={v=>addToList("project.objectives", v)} onRemove={i=>removeFromList("project.objectives", i)} placeholder="e.g. Reduce manual underwriting effort by 35% by end of Q3 2026 while holding default rate at or below baseline." />
+      </Section>
+
+      <Section title="Scope" cols={3} hint="A clean scope reduces rework. State what is out as explicitly as what is in.">
+        <Field label="In scope">
+          <ListEditor items={p.scope.in} onAdd={v=>addToList("project.scope.in", v)} onRemove={i=>removeFromList("project.scope.in", i)} placeholder="e.g. Owner-occupied mortgages, EU-resident applicants"/>
+        </Field>
+        <Field label="Out of scope">
+          <ListEditor items={p.scope.out} onAdd={v=>addToList("project.scope.out", v)} onRemove={i=>removeFromList("project.scope.out", i)} placeholder="e.g. Buy-to-let mortgages, non-resident applicants"/>
+        </Field>
+        <Field label="Future / parking lot">
+          <ListEditor items={p.scope.future} onAdd={v=>addToList("project.scope.future", v)} onRemove={i=>removeFromList("project.scope.future", i)} placeholder="e.g. Real-time pricing v2"/>
+        </Field>
+      </Section>
+
+      <Section title="Success metrics" hint="The numbers the team will be judged on. Tie each to one business objective above.">
+        <ListEditor items={p.metrics} onAdd={v=>addToList("project.metrics", v)} onRemove={i=>removeFromList("project.metrics", i)} placeholder="e.g. Time-to-decision &lt; 90 seconds at p95; false-positive rate &lt; 4%"/>
+      </Section>
+    </div>
+  );
+}
+
+// ─── TAB 02 · Stakeholders ───────────────────────────────────────────
+function StakeholdersTab({ state, setState }) {
+  const [form, setForm] = useState({ name:"", role:"", type: STAKEHOLDER_TYPES[0], influence:3, interest:3, needs:"" });
+  const add = () => {
+    if (!form.name.trim()) return;
+    setState(s => ({ ...s, stakeholders: [...s.stakeholders, { id: uid(), ...form }] }));
+    setForm({ name:"", role:"", type: STAKEHOLDER_TYPES[0], influence:3, interest:3, needs:"" });
+  };
+  const remove = (id) => setState(s => ({ ...s, stakeholders: s.stakeholders.filter(x=>x.id!==id) }));
+
+  return (
+    <div className="space-y-6">
+      <Section title="Stakeholder analysis" hint="Wiegers Ch 2. A stakeholder is anyone affected by, influencing, or having an interest in the work. Map influence and interest. Decide engagement strategy per quadrant.">
+        {/* Add form */}
+        <div className="grid grid-cols-12 gap-3 mb-4 p-4 card">
+          <div className="col-span-3"><Field label="Name"><input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} placeholder="Full name"/></Field></div>
+          <div className="col-span-3"><Field label="Role"><input value={form.role} onChange={e=>setForm({...form, role:e.target.value})} placeholder="Job title"/></Field></div>
+          <div className="col-span-3"><Field label="Type"><select value={form.type} onChange={e=>setForm({...form, type:e.target.value})}>
+            {STAKEHOLDER_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select></Field></div>
+          <div className="col-span-1"><Field label="Influence"><select value={form.influence} onChange={e=>setForm({...form, influence:+e.target.value})}>{[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></Field></div>
+          <div className="col-span-1"><Field label="Interest"><select value={form.interest} onChange={e=>setForm({...form, interest:+e.target.value})}>{[1,2,3,4,5].map(n=><option key={n}>{n}</option>)}</select></Field></div>
+          <div className="col-span-1 flex items-end"><button onClick={add} className="primary w-full">Add</button></div>
+          <div className="col-span-12"><Field label="Needs and concerns"><textarea rows="2" value={form.needs} onChange={e=>setForm({...form, needs:e.target.value})} placeholder="What this stakeholder needs from the system; what they fear or want to avoid."/></Field></div>
+        </div>
+
+        {/* Two columns: list + grid */}
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-7">
+            <div className="field-label mb-2">Stakeholder register ({state.stakeholders.length})</div>
+            {state.stakeholders.length===0 && <div className="text-sm mute italic">No stakeholders added yet.</div>}
+            <div className="space-y-2">
+              {state.stakeholders.map(s => (
+                <div key={s.id} className="card p-3 flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-semibold navy">{s.name}</span>
+                      <span className="text-xs mute">· {s.role}</span>
+                    </div>
+                    <div className="text-xs mute mt-1">{s.type} · Influence {s.influence}/5 · Interest {s.interest}/5</div>
+                    {s.needs && <div className="text-sm mt-2">{s.needs}</div>}
+                  </div>
+                  <button className="danger" onClick={()=>remove(s.id)}>remove</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Influence x Interest grid */}
+          <div className="col-span-5">
+            <div className="field-label mb-2">Influence × interest grid</div>
+            <InfluenceInterestGrid stakeholders={state.stakeholders} />
+            <div className="text-xs mute mt-2 italic">High influence + high interest: manage closely. High influence + low interest: keep satisfied. Low + high: keep informed. Low + low: monitor.</div>
+          </div>
+        </div>
+
+        {/* Coverage check */}
+        <CoverageCheck stakeholders={state.stakeholders} />
+      </Section>
+    </div>
+  );
+}
+
+function InfluenceInterestGrid({ stakeholders }) {
+  const W = 320, H = 280, pad = 36;
+  const x = (interest) => pad + (interest-1)/4 * (W - 2*pad);
+  const y = (influence) => H - pad - (influence-1)/4 * (H - 2*pad);
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{maxWidth:400}}>
+      {/* Quadrant backgrounds */}
+      <rect x={pad} y={pad} width={(W-2*pad)/2} height={(H-2*pad)/2} fill="#F4F1EA" />
+      <rect x={pad+(W-2*pad)/2} y={pad} width={(W-2*pad)/2} height={(H-2*pad)/2} fill="#8B2635" opacity="0.07" />
+      <rect x={pad} y={pad+(H-2*pad)/2} width={(W-2*pad)/2} height={(H-2*pad)/2} fill="#F4F1EA" opacity="0.5" />
+      <rect x={pad+(W-2*pad)/2} y={pad+(H-2*pad)/2} width={(W-2*pad)/2} height={(H-2*pad)/2} fill="#2D5A3D" opacity="0.07" />
+      {/* Axes */}
+      <line x1={pad} y1={H-pad} x2={W-pad} y2={H-pad} stroke="#1E2A4A" strokeWidth="1" />
+      <line x1={pad} y1={pad} x2={pad} y2={H-pad} stroke="#1E2A4A" strokeWidth="1" />
+      {/* Labels */}
+      <text x={W/2} y={H-8} fontSize="10" textAnchor="middle" fill="#6B6B72">interest →</text>
+      <text x={10} y={H/2} fontSize="10" textAnchor="middle" fill="#6B6B72" transform={`rotate(-90, 10, ${H/2})`}>influence →</text>
+      <text x={pad+(W-2*pad)/4} y={pad+12} fontSize="9" textAnchor="middle" fill="#6B6B72" fontWeight="bold">KEEP SATISFIED</text>
+      <text x={pad+3*(W-2*pad)/4} y={pad+12} fontSize="9" textAnchor="middle" fill="#8B2635" fontWeight="bold">MANAGE CLOSELY</text>
+      <text x={pad+(W-2*pad)/4} y={H-pad-6} fontSize="9" textAnchor="middle" fill="#6B6B72" fontWeight="bold">MONITOR</text>
+      <text x={pad+3*(W-2*pad)/4} y={H-pad-6} fontSize="9" textAnchor="middle" fill="#2D5A3D" fontWeight="bold">KEEP INFORMED</text>
+      {/* Dots */}
+      {stakeholders.map(s => (
+        <g key={s.id}>
+          <circle cx={x(s.interest)} cy={y(s.influence)} r="6" fill="#1E2A4A" opacity="0.85" />
+          <text x={x(s.interest)+9} y={y(s.influence)+3} fontSize="9" fill="#1A1A1F">{s.name.split(" ")[0]}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function CoverageCheck({ stakeholders }) {
+  const essential = ["Executive sponsor", "Customer (business owner)", "Direct user (end user)", "Risk / compliance"];
+  const present = new Set(stakeholders.map(s=>s.type));
+  const missing = essential.filter(t => !present.has(t));
+  if (stakeholders.length===0) return null;
+  return (
+    <div className="mt-6 p-4 rounded" style={{background: missing.length ? "#fdecec" : "#eaf3ed", border: `1px solid ${missing.length ? "#8B2635" : "#2D5A3D"}`}}>
+      <div className="text-xs font-bold tracking-wider" style={{color: missing.length ? "#8B2635" : "#2D5A3D"}}>COVERAGE CHECK</div>
+      <div className="text-sm mt-1">
+        {missing.length===0
+          ? "Essential stakeholder types are represented."
+          : <span>Missing essential type{missing.length>1?"s":""}: <b>{missing.join(", ")}</b>. Wiegers, ch. 2: missing a key stakeholder type is the most common source of late-discovered requirements.</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB 03 · Elicitation plan ───────────────────────────────────────
+function ElicitTab() {
+  return (
+    <Section title="Elicitation techniques · choose by purpose" hint="Wiegers ch. 7 catalogue. Mix techniques. No single technique covers all requirement types.">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {ELICITATION_TECHNIQUES.map(t => (
+          <div key={t.name} className="card p-4">
+            <div className="navy font-semibold">{t.name}</div>
+            <div className="text-xs gold mt-1 mono uppercase tracking-wide">When to use</div>
+            <div className="text-sm">{t.when}</div>
+            <div className="text-xs gold mt-2 mono uppercase tracking-wide">What it produces</div>
+            <div className="text-sm">{t.produces}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 p-4 rounded text-sm" style={{background:"#fdf6e3", border:"1px solid var(--gold)"}}>
+        <b className="gold">Editorial rule:</b> for any AI use case, document analysis on the regulation (AI Act, DORA, GDPR) is non-optional. Treat it as a first-class elicitation source, not background reading.
+      </div>
+    </Section>
+  );
+}
+
+// ─── TAB 04 · Requirements ───────────────────────────────────────────
+function RequirementsTab({ state, setState }) {
+  const [level, setLevel] = useState("business");
+  const levels = [
+    { key:"business",   label:"Business",     hint:"Why we are doing this. The business outcome. Wiegers ch. 5." },
+    { key:"user",       label:"User",         hint:"What a user must be able to do. Often expressed as user stories." },
+    { key:"functional", label:"Functional",   hint:"What the system shall do. Specific, testable, unambiguous." },
+    { key:"nfr",        label:"Non-functional",hint:"Quality attributes. Performance, security, fairness, robustness, etc." },
+  ];
+  const current = levels.find(l => l.key === level);
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4">
+        {levels.map(l => (
+          <button key={l.key} onClick={()=>setLevel(l.key)}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${level===l.key ? "navy-bg text-white" : ""}`}
+            style={level===l.key ? {} : {background:"var(--paper)", border:"1px solid var(--rule)"}}>
+            {l.label} <span className="ml-1 mute">({state.requirements[l.key].length})</span>
+          </button>
+        ))}
+      </div>
+      <Section title={`${current.label} requirements`} hint={current.hint}>
+        <ReqEditor level={level} state={state} setState={setState} />
+      </Section>
+    </div>
+  );
+}
+
+function ReqEditor({ level, state, setState }) {
+  const list = state.requirements[level];
+  const [draft, setDraft] = useState(emptyReq(level));
+  function emptyReq(l) {
+    const base = { id:"", statement:"", rationale:"", priority:"Should", source:"" };
+    if (l==="nfr") return { ...base, category: NFR_CATEGORIES[0], target:"" };
+    if (l==="user") return { ...base, asA:"", iWant:"", soThat:"", acceptance:"" };
+    return base;
+  }
+  const idPrefix = { business:"BR", user:"UR", functional:"FR", nfr:"NFR" }[level];
+
+  const add = () => {
+    const needed = level==="user" ? draft.iWant : draft.statement;
+    if (!needed.trim()) return;
+    const id = `${idPrefix}-${String(list.length+1).padStart(3,"0")}`;
+    setState(s => {
+      const n = JSON.parse(JSON.stringify(s));
+      n.requirements[level].push({ ...draft, id });
+      return n;
+    });
+    setDraft(emptyReq(level));
+  };
+  const remove = (id) => setState(s => {
+    const n = JSON.parse(JSON.stringify(s));
+    n.requirements[level] = n.requirements[level].filter(r=>r.id!==id);
+    return n;
+  });
+
+  return (
+    <div>
+      <div className="card p-4 mb-4 space-y-3">
+        {level==="user" ? (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="As a"><input value={draft.asA} onChange={e=>setDraft({...draft, asA:e.target.value})} placeholder="role / persona"/></Field>
+              <Field label="I want"><input value={draft.iWant} onChange={e=>setDraft({...draft, iWant:e.target.value})} placeholder="capability"/></Field>
+              <Field label="So that"><input value={draft.soThat} onChange={e=>setDraft({...draft, soThat:e.target.value})} placeholder="business value"/></Field>
+            </div>
+            <Field label="Acceptance criteria (Given / When / Then)"><textarea rows="3" value={draft.acceptance} onChange={e=>setDraft({...draft, acceptance:e.target.value})} placeholder={"Given a complete application\nWhen the decision is calculated\nThen the response time is under 90 seconds"}/></Field>
+          </>
+        ) : (
+          <>
+            <Field label="Requirement statement">
+              <textarea rows="2" value={draft.statement} onChange={e=>setDraft({...draft, statement:e.target.value})} placeholder={level==="functional" ? "The system shall ..." : level==="nfr" ? "The system shall achieve ..." : "The business shall ..."}/>
+            </Field>
+            <Field label="Rationale">
+              <textarea rows="2" value={draft.rationale} onChange={e=>setDraft({...draft, rationale:e.target.value})} placeholder="Why this matters. Link to a business objective or stakeholder need."/>
+            </Field>
+          </>
+        )}
+        <div className="grid grid-cols-4 gap-3">
+          <Field label="Source"><input value={draft.source} onChange={e=>setDraft({...draft, source:e.target.value})} placeholder="Stakeholder, document, session"/></Field>
+          <Field label="Priority (MoSCoW)">
+            <select value={draft.priority} onChange={e=>setDraft({...draft, priority:e.target.value})}>
+              <option>Must</option><option>Should</option><option>Could</option><option>Won't</option>
+            </select>
+          </Field>
+          {level==="nfr" && (
+            <>
+              <Field label="Category">
+                <select value={draft.category} onChange={e=>setDraft({...draft, category:e.target.value})}>
+                  {NFR_CATEGORIES.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Target / threshold"><input value={draft.target} onChange={e=>setDraft({...draft, target:e.target.value})} placeholder="e.g. p95 latency &lt; 200ms"/></Field>
+            </>
+          )}
+          <div className={`flex items-end ${level==="nfr"?"":"col-start-4"}`}>
+            <button onClick={add} className="primary w-full">Add requirement</button>
+          </div>
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="space-y-2">
+        {list.length===0 && <div className="text-sm mute italic">No {level} requirements yet.</div>}
+        {list.map(r => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start gap-3">
+              <span className="mono text-xs navy font-bold pt-1">{r.id}</span>
+              <div className="flex-1">
+                <div className="text-sm">
+                  {level==="user" ? <>As <b>{r.asA}</b>, I want <b>{r.iWant}</b>, so that {r.soThat}.</> : r.statement}
+                </div>
+                <div className="text-xs mute mt-1 flex flex-wrap gap-2 items-center">
+                  <span className={`pill ${priorityClass(r.priority)}`}>{r.priority}</span>
+                  {r.source && <span>source: {r.source}</span>}
+                  {r.category && <span>· {r.category}</span>}
+                  {r.target && <span>· target: {r.target}</span>}
+                </div>
+                {r.rationale && <div className="text-xs mt-1 italic">Rationale: {r.rationale}</div>}
+                {r.acceptance && <div className="text-xs mt-1 mono whitespace-pre-wrap" style={{color:"#555"}}>{r.acceptance}</div>}
+              </div>
+              <button className="danger" onClick={()=>remove(r.id)}>remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB 05 · Quality gate ───────────────────────────────────────────
+function QualityTab({ state, setState }) {
+  const all = [
+    ...state.requirements.business.map(r => ({ ...r, _level:"business" })),
+    ...state.requirements.user.map(r => ({ ...r, _level:"user" })),
+    ...state.requirements.functional.map(r => ({ ...r, _level:"functional" })),
+    ...state.requirements.nfr.map(r => ({ ...r, _level:"nfr" })),
+  ];
+  const checks = (state.qualityChecks ||= {});
+
+  const toggle = (id, key) => {
+    setState(s => {
+      const n = JSON.parse(JSON.stringify(s));
+      n.qualityChecks = n.qualityChecks || {};
+      n.qualityChecks[id] = n.qualityChecks[id] || {};
+      n.qualityChecks[id][key] = !n.qualityChecks[id][key];
+      return n;
+    });
+  };
+
+  return (
+    <Section title="Quality gate · Wiegers' seven characteristics" hint="Run each requirement through this checklist before baselining. Anything scoring below five is a candidate for rework.">
+      <div className="grid grid-cols-12 gap-2 mb-3 font-semibold text-xs mute uppercase tracking-wider">
+        <div className="col-span-4">Requirement</div>
+        {QUALITY_CRITERIA.map(c => (
+          <div key={c.key} className="col-span-1 text-center" title={c.hint}>{c.label.slice(0,4)}</div>
+        ))}
+        <div className="col-span-1 text-center">Score</div>
+      </div>
+      {all.length===0 && <div className="text-sm mute italic">Add requirements first.</div>}
+      <div className="space-y-1">
+        {all.map(r => {
+          const c = (state.qualityChecks?.[r.id]) || {};
+          const score = QUALITY_CRITERIA.filter(q => c[q.key]).length;
+          return (
+            <div key={r.id} className="grid grid-cols-12 gap-2 items-center card p-2">
+              <div className="col-span-4">
+                <div className="mono text-xs navy font-bold">{r.id}</div>
+                <div className="text-xs truncate">{r._level==="user" ? `As ${r.asA}, I want ${r.iWant}` : r.statement}</div>
+              </div>
+              {QUALITY_CRITERIA.map(q => (
+                <div key={q.key} className="col-span-1 text-center">
+                  <input type="checkbox" checked={!!c[q.key]} onChange={()=>toggle(r.id, q.key)} title={q.hint} />
+                </div>
+              ))}
+              <div className="col-span-1">
+                <div className="quality-score-bar"><div className="quality-score-fill" style={{width:`${(score/7)*100}%`, background: score<4 ? "#8B2635" : score<6 ? "#A8801C" : "#2D5A3D"}}/></div>
+                <div className="text-center text-xs mt-1 font-bold" style={{color: score<4 ? "#8B2635" : score<6 ? "#A8801C" : "#2D5A3D"}}>{score}/7</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-7 gap-2">
+        {QUALITY_CRITERIA.map(c => (
+          <div key={c.key} className="text-xs p-2 card">
+            <b className="navy">{c.label}</b>
+            <div className="mute mt-1">{c.hint}</div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ─── TAB 06 · Traceability ───────────────────────────────────────────
+function TraceTab({ state, setState }) {
+  const { business, user, functional } = state.requirements;
+  const trace = state.trace || {};
+  const setTrace = (id, parents) => setState(s => ({ ...s, trace: { ...(s.trace||{}), [id]: parents } }));
+
+  return (
+    <Section title="Traceability · upward to business need, downward to test" hint="Every functional requirement should trace to a user requirement, and every user requirement to a business requirement. Orphans are red flags.">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="field-label mb-2">User → Business</div>
+          {user.length===0 && <div className="text-sm mute italic">Add user requirements first.</div>}
+          {user.map(u => (
+            <div key={u.id} className="card p-3 mb-2">
+              <div className="mono text-xs navy font-bold">{u.id}</div>
+              <div className="text-xs truncate mb-2">As {u.asA}, I want {u.iWant}</div>
+              <div className="field-label mb-1">Traces to</div>
+              <select multiple value={trace[u.id]||[]} onChange={e=>setTrace(u.id, [...e.target.selectedOptions].map(o=>o.value))} size={Math.min(5, Math.max(2, business.length))}>
+                {business.map(b => <option key={b.id} value={b.id}>{b.id} · {b.statement.slice(0,80)}</option>)}
+              </select>
+              <div className="text-xs mute mt-1">Hold Ctrl or Cmd to select multiple.</div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="field-label mb-2">Functional → User</div>
+          {functional.length===0 && <div className="text-sm mute italic">Add functional requirements first.</div>}
+          {functional.map(f => (
+            <div key={f.id} className="card p-3 mb-2">
+              <div className="mono text-xs navy font-bold">{f.id}</div>
+              <div className="text-xs truncate mb-2">{f.statement}</div>
+              <div className="field-label mb-1">Traces to</div>
+              <select multiple value={trace[f.id]||[]} onChange={e=>setTrace(f.id, [...e.target.selectedOptions].map(o=>o.value))} size={Math.min(5, Math.max(2, user.length))}>
+                {user.map(u => <option key={u.id} value={u.id}>{u.id} · As {u.asA}, I want {u.iWant.slice(0,60)}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Orphan check */}
+      <OrphanCheck state={state} />
+    </Section>
+  );
+}
+
+function OrphanCheck({ state }) {
+  const trace = state.trace || {};
+  const u = state.requirements.user;
+  const f = state.requirements.functional;
+  const orphansU = u.filter(x => !(trace[x.id] && trace[x.id].length));
+  const orphansF = f.filter(x => !(trace[x.id] && trace[x.id].length));
+  if (u.length===0 && f.length===0) return null;
+  return (
+    <div className="mt-4 p-4 rounded text-sm" style={{background: orphansU.length+orphansF.length ? "#fdecec" : "#eaf3ed", border:`1px solid ${orphansU.length+orphansF.length ? "#8B2635" : "#2D5A3D"}`}}>
+      <div className="text-xs font-bold tracking-wider" style={{color: orphansU.length+orphansF.length ? "#8B2635" : "#2D5A3D"}}>ORPHAN CHECK</div>
+      {orphansU.length+orphansF.length === 0
+        ? <div className="mt-1">No orphans. Every user and functional requirement traces upward.</div>
+        : <div className="mt-1">
+            {orphansU.length>0 && <div>User requirements with no business parent: <b>{orphansU.map(x=>x.id).join(", ")}</b></div>}
+            {orphansF.length>0 && <div>Functional requirements with no user parent: <b>{orphansF.map(x=>x.id).join(", ")}</b></div>}
+          </div>}
+    </div>
+  );
+}
+
+// ─── TAB 07 · Regulatory mapping ─────────────────────────────────────
+function RegTab({ state, setState }) {
+  const all = [
+    ...state.requirements.functional.map(r => ({ ...r, _level:"functional" })),
+    ...state.requirements.nfr.map(r => ({ ...r, _level:"nfr" })),
+  ];
+  const reg = state.reg || {};
+  const toggle = (rid, code) => {
+    setState(s => {
+      const n = JSON.parse(JSON.stringify(s));
+      n.reg = n.reg || {};
+      const set = new Set(n.reg[rid] || []);
+      set.has(code) ? set.delete(code) : set.add(code);
+      n.reg[rid] = [...set];
+      return n;
+    });
+  };
+
+  return (
+    <Section title="Regulatory mapping · which articles each requirement implements" hint="For banking AI use cases. Each functional and non-functional requirement should be mapped to the article(s) it implements. The mapping becomes the Annex IV technical file's cross-reference.">
+      {all.length===0 && <div className="text-sm mute italic">Add functional or non-functional requirements first.</div>}
+      <div className="space-y-3">
+        {all.map(r => (
+          <div key={r.id} className="card p-3">
+            <div className="flex items-start gap-3 mb-2">
+              <span className="mono text-xs navy font-bold">{r.id}</span>
+              <div className="text-sm flex-1">{r.statement}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1">
+              {REG_REFERENCES.map(ref => {
+                const on = (reg[r.id]||[]).includes(ref.code);
+                return (
+                  <label key={ref.code} className={`flex items-start gap-2 p-2 rounded cursor-pointer text-xs ${on ? "" : ""}`} style={{background: on ? "#fdf6e3" : "#fff", border:`1px solid ${on ? "var(--gold)" : "var(--rule)"}`}}>
+                    <input type="checkbox" checked={on} onChange={()=>toggle(r.id, ref.code)} className="mt-0.5"/>
+                    <div>
+                      <div className="font-semibold navy mono">{ref.code} <span className="text-gray-500 font-normal">· {ref.layer}</span></div>
+                      <div className="mute mt-0.5">{ref.text}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ─── TAB 08 · Export ─────────────────────────────────────────────────
+function ExportTab({ state }) {
+  const md = useMemo(() => buildMarkdown(state), [state]);
+  const downloadMd = () => {
+    const blob = new Blob([md], { type:"text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (state.project.name || "SRS") + ".md";
+    a.click();
+  };
+  return (
+    <Section title="Generate the Software Requirements Specification" hint="Wiegers' SRS template, populated from your work. Download as Markdown, paste into Word, or version-control alongside your code.">
+      <div className="flex gap-2 mb-4">
+        <button onClick={downloadMd} className="primary">Download SRS (.md)</button>
+        <button onClick={()=>navigator.clipboard.writeText(md)} className="ghost">Copy to clipboard</button>
+      </div>
+      <pre className="card p-4 text-xs whitespace-pre-wrap overflow-auto" style={{maxHeight:600, fontFamily:"ui-monospace, monospace"}}>{md}</pre>
+    </Section>
+  );
+}
+
+function buildMarkdown(s) {
+  const p = s.project;
+  const lines = [];
+  lines.push(`# Software Requirements Specification`);
+  lines.push(`## ${p.name || "[Project name]"}`);
+  lines.push(`\n_Built with AEGIS Requirements Studio. Structure follows Wiegers & Beatty, Software Requirements (3rd ed.)._`);
+  lines.push(`\n---\n`);
+
+  lines.push(`## 1. Introduction\n`);
+  lines.push(`### 1.1 Vision`);
+  lines.push(`- **Problem:** ${p.vision.problem || "[not set]"}`);
+  lines.push(`- **Key benefit:** ${p.vision.benefit || "[not set]"}`);
+  lines.push(`- **Target customers:** ${p.vision.customers || "[not set]"}`);
+  lines.push(`- **Differentiator:** ${p.vision.differentiator || "[not set]"}`);
+  lines.push(`\n### 1.2 Business objectives`);
+  if (p.objectives.length===0) lines.push(`- [not set]`);
+  else p.objectives.forEach(o => lines.push(`- ${o}`));
+  lines.push(`\n### 1.3 Scope`);
+  lines.push(`**In scope:**`);
+  if (p.scope.in.length===0) lines.push(`- [not set]`); else p.scope.in.forEach(x=>lines.push(`- ${x}`));
+  lines.push(`\n**Out of scope:**`);
+  if (p.scope.out.length===0) lines.push(`- [not set]`); else p.scope.out.forEach(x=>lines.push(`- ${x}`));
+  lines.push(`\n**Future:**`);
+  if (p.scope.future.length===0) lines.push(`- [not set]`); else p.scope.future.forEach(x=>lines.push(`- ${x}`));
+  lines.push(`\n### 1.4 Success metrics`);
+  if (p.metrics.length===0) lines.push(`- [not set]`); else p.metrics.forEach(m=>lines.push(`- ${m}`));
+
+  lines.push(`\n## 2. Stakeholders\n`);
+  if (s.stakeholders.length===0) lines.push(`_No stakeholders captured._`);
+  else {
+    lines.push(`| Name | Role | Type | Influence | Interest | Needs |`);
+    lines.push(`|---|---|---|---|---|---|`);
+    s.stakeholders.forEach(x => lines.push(`| ${x.name} | ${x.role} | ${x.type} | ${x.influence}/5 | ${x.interest}/5 | ${(x.needs||"").replace(/\|/g,"\\|")} |`));
+  }
+
+  lines.push(`\n## 3. Business requirements\n`);
+  if (s.requirements.business.length===0) lines.push(`_None captured._`);
+  else s.requirements.business.forEach(r => lines.push(`- **${r.id}** [${r.priority}] ${r.statement}${r.rationale ? `  \n  _Rationale: ${r.rationale}_` : ""}`));
+
+  lines.push(`\n## 4. User requirements (stories)\n`);
+  if (s.requirements.user.length===0) lines.push(`_None captured._`);
+  else s.requirements.user.forEach(r => {
+    lines.push(`- **${r.id}** [${r.priority}] As ${r.asA}, I want ${r.iWant}, so that ${r.soThat}.`);
+    if (r.acceptance) lines.push(`\n  \`\`\`gherkin\n  ${r.acceptance.split("\n").map(x=>"  "+x).join("\n")}\n  \`\`\``);
+  });
+
+  lines.push(`\n## 5. Functional requirements\n`);
+  if (s.requirements.functional.length===0) lines.push(`_None captured._`);
+  else s.requirements.functional.forEach(r => lines.push(`- **${r.id}** [${r.priority}] ${r.statement}${r.rationale ? `  \n  _Rationale: ${r.rationale}_` : ""}`));
+
+  lines.push(`\n## 6. Non-functional requirements (quality attributes)\n`);
+  if (s.requirements.nfr.length===0) lines.push(`_None captured._`);
+  else s.requirements.nfr.forEach(r => lines.push(`- **${r.id}** [${r.priority}] _${r.category}_: ${r.statement}${r.target ? `  \n  Target: ${r.target}` : ""}`));
+
+  lines.push(`\n## 7. Traceability\n`);
+  const trace = s.trace || {};
+  if (Object.keys(trace).length===0) lines.push(`_None captured._`);
+  else {
+    lines.push(`| Requirement | Traces to |`);
+    lines.push(`|---|---|`);
+    Object.entries(trace).forEach(([k,v]) => v.length && lines.push(`| ${k} | ${v.join(", ")} |`));
+  }
+
+  lines.push(`\n## 8. Regulatory mapping\n`);
+  const reg = s.reg || {};
+  const mapped = Object.entries(reg).filter(([,v]) => v.length);
+  if (mapped.length===0) lines.push(`_None captured._`);
+  else {
+    lines.push(`| Requirement | Articles implemented |`);
+    lines.push(`|---|---|`);
+    mapped.forEach(([k,v]) => lines.push(`| ${k} | ${v.join("; ")} |`));
+  }
+
+  lines.push(`\n## 9. Requirement quality scorecard\n`);
+  const qc = s.qualityChecks || {};
+  const allReqs = [
+    ...s.requirements.business, ...s.requirements.user,
+    ...s.requirements.functional, ...s.requirements.nfr,
+  ];
+  if (allReqs.length===0) lines.push(`_No requirements._`);
+  else {
+    lines.push(`| ID | Score | Failing criteria |`);
+    lines.push(`|---|---|---|`);
+    allReqs.forEach(r => {
+      const c = qc[r.id] || {};
+      const pass = QUALITY_CRITERIA.filter(q => c[q.key]).map(q=>q.key);
+      const fail = QUALITY_CRITERIA.filter(q => !c[q.key]).map(q=>q.label);
+      lines.push(`| ${r.id} | ${pass.length}/7 | ${fail.length ? fail.join(", ") : "—"} |`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
+// ─── Small UI primitives ────────────────────────────────────────────
+function Section({ title, hint, children, cols }) {
+  return (
+    <section className="card p-5">
+      <div className="mb-3">
+        <h2 className="serif text-xl navy">{title}</h2>
+        {hint && <p className="text-xs mute mt-1 italic">{hint}</p>}
+      </div>
+      <div className={cols ? `grid grid-cols-1 md:grid-cols-${cols} gap-4` : ""}>{children}</div>
+    </section>
+  );
+}
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="field-label block mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+function ListEditor({ items, onAdd, onRemove, placeholder }) {
+  const [v, setV] = useState("");
+  return (
+    <div>
+      <div className="flex gap-2 mb-2">
+        <input value={v} onChange={e=>setV(e.target.value)} placeholder={placeholder} onKeyDown={e=>{ if(e.key==="Enter"){ onAdd(v); setV(""); } }}/>
+        <button className="primary" onClick={()=>{ onAdd(v); setV(""); }}>Add</button>
+      </div>
+      <ul className="space-y-1">
+        {items.map((x, i) => (
+          <li key={i} className="text-sm flex items-start gap-2 card p-2">
+            <span className="flex-1">{x}</span>
+            <button className="danger" onClick={()=>onRemove(i)}>×</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Mount ──────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
